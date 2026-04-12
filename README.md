@@ -1,53 +1,68 @@
-﻿# 🔐 JwtServicePackage
+# 🔐 JwtServicePackage
 
-A **production-ready JWT authentication service** for .NET, designed with **security, scalability, and real-world constraints** in mind.
+A **production-ready JWT authentication and token lifecycle engine** for .NET, designed for security, scalability, and real-world distributed systems.
 
 ![NuGet Version](https://img.shields.io/nuget/v/JwtServicePackage)
 ![NuGet Downloads](https://img.shields.io/nuget/dt/JwtServicePackage)
 
-Unlike basic JWT implementations, this package provides a **full token lifecycle system**, including:
+Unlike traditional JWT setups that rely on static secrets and stateless validation only, this package introduces a full token security lifecycle system with:
 
-* Access & Refresh tokens
-* Token rotation
-* Token revocation (blacklisting)
-* Replay attack detection
-* Key rotation
-* Multi-device session control
-
----
-
-# 🚀 Features
-
-## ✅ Core Authentication
-
-* Generate **Access + Refresh token pairs**
-* Validate tokens with custom logic
-* Decode tokens safely
-
-## 🔁 Token Lifecycle Management
-
-* Refresh token rotation (secure renewal)
-* Revoke individual tokens
-* Revoke all tokens per user
-* Track active sessions
-
-## 🔐 Security Enhancements
-
-* Token replay attack detection (JTI tracking)
-* Token blacklisting
-* Hash-based refresh token storage
-* Claims-based identity
-
-## ⚙️ Operational Features
-
-* Background cleanup of expired tokens
-* Configurable limits per user
+- Key rotation
+- Multi-key validation (zero-downtime rotation)
+- Refresh token lifecycle management
+- Token revocation (blacklisting)
+- Replay attack detection
+- Session control per user/device
 
 ---
 
-# 📦 Installation
+## Updates
 
-Add the package to your solution (local or NuGet):
+**New version**: **10.0.5** is available with updates to address rotatable keys and validation for the Key.
+
+**IMPORTANT**: Version 10.0.0 will be deprecated, please use version 10.0.5
+
+## 🚀 Features
+
+### 🔐 Authentication Core
+
+- Generate **Access + Refresh token pairs**
+- Claims-based identity support
+- Token decoding utilities
+
+### 🔁 Token Lifecycle Management
+
+- Secure refresh token rotation
+- Per-user session limits
+- Token revocation (single or all sessions)
+- Device-aware session tracking
+
+### 🧠 Security Enhancements
+
+- Replay attack detection (JTI tracking)
+- Token blacklisting
+- Hash-based refresh token storage
+- Per-user active session enforcement
+
+### 🔄 Key Management System (NEW)
+
+- Automatic key generation (if not provided)
+- Rotating signing keys with KeyId (kid)
+- Multi-key validation for backward compatibility
+- Retains old keys until refresh-token expiry window ends
+- Zero-downtime key rotation
+
+---
+
+### 🧠 Architecture Overview
+
+Client → JWT Middleware → JwtService → Controller
+
+Key rotation ensures all valid keys remain usable during rotation windows.
+
+---
+
+## 📦 Installation
 
 ```bash
 dotnet add package JwtServicePackage
@@ -55,14 +70,14 @@ dotnet add package JwtServicePackage
 
 ---
 
-# ⚙️ Configuration
+## ⚙️ Configuration
 
 Add to `appsettings.json`:
 
 ```json
 {
   "JwtSettings": {
-    "SecretKey": "my-super-secret-key-very-long-32+chars",
+    "SecretKey": "your-initial-secret-key-32chars-minimum",
     "Issuer": "your-app",
     "Audience": "your-app-users",
     "AccessTokenExpiryMinutes": 15,
@@ -78,7 +93,7 @@ Add to `appsettings.json`:
 
 ---
 
-# 🧩 Setup (Program.cs)
+## 🧩 Setup (Program.cs)
 
 ```csharp
 builder.Services.AddJwtAuthentication(builder.Configuration);
@@ -92,7 +107,22 @@ app.UseAuthorization();
 
 ---
 
-# 🔑 Generating Tokens
+## 🔑 Usage
+
+Generate tokens:
+
+```csharp
+
+var tokens = _jwtService.GenerateTokenPair("user-123");
+
+Validate:
+var result = _jwtService.ValidateAccessToken(token);
+
+Refresh:
+var newTokens = _jwtService.RefreshToken(refreshToken);
+```
+
+## 🔑 Generating Tokens
 
 ```csharp
 var tokens = _jwtService.GenerateTokenPair(
@@ -106,9 +136,7 @@ var tokens = _jwtService.GenerateTokenPair(
 );
 ```
 
----
-
-# 🔍 Validating Tokens
+## 🔍 Validating Tokens
 
 ```csharp
 var result = _jwtService.ValidateAccessToken(token);
@@ -119,9 +147,7 @@ if (!result.IsValid)
 }
 ```
 
----
-
-# 🔄 Refreshing Tokens
+## 🔄 Refreshing Tokens
 
 ```csharp
 var newTokens = _jwtService.RefreshToken(refreshToken);
@@ -129,29 +155,17 @@ var newTokens = _jwtService.RefreshToken(refreshToken);
 
 ---
 
-# 🚫 Revoking Tokens
-
-### Revoke Access Token
+## 🚫 Revocation
 
 ```csharp
 _jwtService.RevokeToken(accessToken);
-```
-
-### Revoke Refresh Token
-
-```csharp
 _jwtService.RevokeRefreshToken(refreshToken);
-```
-
-### Revoke All User Sessions
-
-```csharp
 _jwtService.RevokeAllUserTokens(userId);
 ```
 
 ---
 
-# 👤 Access Current User
+## 👤 Access Current User
 
 Use claims via `HttpContext`:
 
@@ -161,63 +175,16 @@ var userId = HttpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
 ---
 
-# 🧠 Design Philosophy
+## 🔐 Security Model
 
-## Why not just use default JWT middleware?
+JWT Middleware → cryptographic validation  
+JwtService → business security rules
 
-Most JWT examples:
-
-* Use a single static secret ❌
-* Cannot revoke tokens ❌
-* Cannot detect replay attacks ❌
-* Break under scaling ❌
-
-This package solves those problems by making:
-
-> 🧠 **The JWT Service the source of truth**, not middleware
-
-### Middleware becomes:
-
-* A gatekeeper
-
-### JwtService becomes:
-
-* The authority for validation, rotation, and security
+Do NOT duplicate validation logic.
 
 ---
 
-# 🏗 Architecture Overview
-
-```
-Client
-   ↓
-JWT Middleware (basic validation)
-   ↓
-JwtService (real validation)
-   ↓
-Controllers / Services
-```
-
----
-
-# 🧪 Testing
-
-You can test quickly:
-
-```csharp
-var tokens = _jwtService.GenerateTokenPair("user-123");
-Console.WriteLine(tokens.AccessToken);
-```
-
-Use with:
-
-```http
-Authorization: Bearer <token>
-```
-
----
-
-# 🔄 Background Cleanup
+## 🔄 Background Cleanup
 
 Token cleanup runs automatically via `BackgroundService`:
 
@@ -227,12 +194,12 @@ Token cleanup runs automatically via `BackgroundService`:
 
 ---
 
-# 📄 License
+## 📄 License
 
 MIT License - free for commercial and personal use.
 
 ---
 
-# Author
+## 👨‍💻 Author
 
 Created and Maintained by: [Ethern-Myth](https://github.com/ethern-myth)
