@@ -18,9 +18,15 @@ Unlike traditional JWT setups that rely on static secrets and stateless validati
 
 ## Updates
 
-**New version**: **10.0.5** is available with updates to address rotatable keys and validation for the Key.
+### Lastest updates
 
-**IMPORTANT**: Version 10.0.0 will be deprecated, please use version 10.0.5
+- Updated EnableTokenReplayDetection to false as default
+- Added EnableTokenReplayDetectionMinutes for user configuration by default set to 5 minutes
+- EnableTokenReplayDetectionMinutes can be added to `JwtSettings` if not, by default will be false
+ 
+**New version**: **10.0.10** is available with updates to address the above changes
+
+**IMPORTANT**: Version 10.0.10 is the latest, 10.0.5 is available alternatively
 
 ## 🚀 Features
 
@@ -84,7 +90,8 @@ Add to `appsettings.json`:
     "RefreshTokenExpiryDays": 7,
     "EnableKeyRotation": true,
     "KeyRotationIntervalDays": 7,
-    "EnableTokenReplayDetection": true,
+    "EnableTokenReplayDetection": false,
+    "EnableTokenReplayDetectionMinutes": 5,
     "EnableTokenBlacklisting": true,
     "MaxActiveTokensPerUser": 5
   }
