@@ -10,77 +10,70 @@ Unlike traditional JWT setups that rely on static secrets and stateless validati
 - Key rotation
 - Multi-key validation (zero-downtime rotation)
 - Refresh token lifecycle management
+- Automatic claims preservation on refresh
 - Token revocation (blacklisting)
 - Replay attack detection
 - Session control per user/device
 
 ---
 
-## Updates
+## 🚀 Updates & Release Notes
 
-### Lastest updates
+### 🌟 What's New in Version 10.0.20
 
-- Updated EnableTokenReplayDetection to false as default
-- Added EnableTokenReplayDetectionMinutes for user configuration by default set to 5 minutes
-- EnableTokenReplayDetectionMinutes can be added to `JwtSettings` if not, by default will be false
- 
-**New version**: **10.0.10** is available with updates to address the above changes
+- **Automatic Claims Preservation on Refresh**: `RefreshToken()` can now take an optional `expiredAccessToken`. If no new claims are provided, the service extracts and carries forward the claims from the previous token automatically—eliminating redundant database lookups during token renewal.
+- **Flexible Claims Overloads**: Support for `IEnumerable<Claim>` alongside `Dictionary<string, object>` across token generation and refresh methods.
+- **Enhanced Token & Principal Helpers**: Added `GetPrincipalFromExpiredToken()`, `GetUserIdFromPrincipal()`, `GetClaimFromToken<T>()`, and generic claims access via `TokenValidationResult.GetClaimValue<T>()`.
+- **Absolute Refresh Expiration Window**: Refresh token rotation retains the original absolute session expiration window configured in `appsettings.json` (`RefreshTokenExpiryDays`).
+- **DI & Extension Method Cleanups**: Fixed static DI extension method signatures (`this IServiceCollection`) and key resolver performance in `AddJwtAuthentication`.
 
-**IMPORTANT**: Version 10.0.10 is the latest, 10.0.5 is available alternatively
+> **IMPORTANT**: Version **10.0.20** is the latest recommended release. Users on `10.0.10` or earlier are encouraged to upgrade.
+
+---
 
 ## 🚀 Features
 
 ### 🔐 Authentication Core
 
-- Generate **Access + Refresh token pairs**
-- Claims-based identity support
-- Token decoding utilities
+- Generate **Access + Refresh token pairs** using standard `Claim` collections or dictionary key-value maps.
+- Claims-based identity support with built-in extraction helpers.
+- Fast token decoding and `ClaimsPrincipal` extraction utilities.
 
 ### 🔁 Token Lifecycle Management
 
-- Secure refresh token rotation
-- Per-user session limits
-- Token revocation (single or all sessions)
-- Device-aware session tracking
+- Smart refresh token rotation with claim preservation.
+- Absolute persistence window matching `appsettings.json`.
+- Per-user active session limits (`MaxActiveTokensPerUser`).
+- Revocation options (single access token, refresh token, or all user sessions).
+- Device and IP-aware session tracking.
 
 ### 🧠 Security Enhancements
 
-- Replay attack detection (JTI tracking)
-- Token blacklisting
-- Hash-based refresh token storage
-- Per-user active session enforcement
+- Replay attack detection (JTI tracking) with configurable window (`EnableTokenReplayDetectionMinutes`).
+- Token blacklisting for instant access revocation.
+- Cryptographic hash-based refresh token storage.
+- Active per-user session limits.
 
-### 🔄 Key Management System (NEW)
+### 🔄 Key Management System
 
-- Automatic key generation (if not provided)
-- Rotating signing keys with KeyId (kid)
-- Multi-key validation for backward compatibility
-- Retains old keys until refresh-token expiry window ends
-- Zero-downtime key rotation
-
----
-
-### 🧠 Architecture Overview
-
-Client → JWT Middleware → JwtService → Controller
-
-Key rotation ensures all valid keys remain usable during rotation windows.
+- Automatic key generation if not provided.
+- Rotating signing keys with KeyId (`kid`).
+- Multi-key validation for zero-downtime key rotation.
+- Old signing keys retained during the active refresh window.
 
 ---
 
 ## 📦 Installation
 
 ```bash
-dotnet add package JwtServicePackage
+dotnet add package JwtServicePackage --version 10.0.20
 ```
-
----
 
 ## ⚙️ Configuration
 
-Add to `appsettings.json`:
+Add to appsettings.json:
 
-```json
+```JSON
 {
   "JwtSettings": {
     "SecretKey": "your-initial-secret-key-32chars-minimum",
@@ -98,114 +91,165 @@ Add to `appsettings.json`:
 }
 ```
 
----
-
 ## 🧩 Setup (Program.cs)
 
 ```csharp
 builder.Services.AddJwtAuthentication(builder.Configuration);
 builder.Services.AddHttpContextAccessor();
-```
 
-```csharp
 app.UseAuthentication();
 app.UseAuthorization();
 ```
 
----
-
 ## 🔑 Usage
 
-Generate tokens:
+1. Generating Tokens
+
+Using standard Claim collections (Recommended):
 
 ```csharp
+var claims = new List<Claim>
+{
+    new(ClaimTypes.Email, user.Email),
+    new(ClaimTypes.Name, $"{user.FirstName} {user.LastName}"),
+    new(ClaimTypes.Role, user.RoleKey)
+};
 
-var tokens = _jwtService.GenerateTokenPair("user-123");
+// Add multi-value claims such as permissions easily
+foreach (var perm in userPermissions)
+{
+    claims.Add(new Claim("permissions", perm));
+}
 
-Validate:
-var result = _jwtService.ValidateAccessToken(token);
-
-Refresh:
-var newTokens = _jwtService.RefreshToken(refreshToken);
-```
-
-## 🔑 Generating Tokens
-
-```csharp
 var tokens = _jwtService.GenerateTokenPair(
     userId: user.UserId.ToString(),
-    customClaims: new Dictionary<string, object>
-    {
-        { ClaimTypes.Email, user.Email }
-    },
-    deviceInfo: "web",
-    ipAddress: "127.0.0.1"
+    claims: claims,
+    deviceInfo: Request.Headers.UserAgent.ToString(),
+    ipAddress: HttpContext.Connection.RemoteIpAddress?.ToString()
 );
 ```
 
-## 🔍 Validating Tokens
+Or using Dictionary<string, object>:
 
 ```csharp
-var result = _jwtService.ValidateAccessToken(token);
+var customClaims = new Dictionary<string, object>
+{
+    [ClaimTypes.Email] = user.Email,
+    [ClaimTypes.Role] = user.RoleKey,
+    ["permissions"] = new[] { "read:users", "write:users" }
+    //OR
+    ["permissions"] = string.Join(",", new[] { "read:users", "write:users" })
+};
+
+var tokens = _jwtService.GenerateTokenPair(
+    userId: user.UserId.ToString(),
+    customClaims: customClaims
+);
+```
+
+2. Validating Tokens
+
+```csharp
+var result = _jwtService.ValidateAccessToken(accessToken);
 
 if (!result.IsValid)
 {
-    // handle invalid token
+    // Handle invalid/expired token
+    var error = result.ErrorMessage;
+    var errorType = result.ErrorType; // e.g. TokenValidationErrorType.Expired
+}
+
+// Extract strongly-typed claims directly from validation result
+var email = result.GetClaimValue<string>(ClaimTypes.Email);
+```
+
+3. Smart Token Refresh (Zero Database Overhead)
+
+In v10.0.20, passing the expiredAccessToken automatically preserves all claims from the expired token into the new access token—saving unnecessary database calls:
+
+```csharp
+[HttpPost("refresh")]
+public IActionResult Refresh([FromBody] RefreshRequestDto request)
+{
+    // Refreshes the pair, retains existing claims, and maintains original session expiry window
+    var tokenPair = _jwtService.RefreshToken(
+        refreshToken: request.RefreshToken,
+        expiredAccessToken: request.AccessToken,
+        updatedClaims: null, // Pass null to automatically preserve claims from expired token
+        newDeviceInfo: Request.Headers.UserAgent.ToString(),
+        newIpAddress: HttpContext.Connection.RemoteIpAddress?.ToString()
+    );
+
+    return Ok(tokenPair);
 }
 ```
 
-## 🔄 Refreshing Tokens
+*Note*: If user roles or permissions have changed, you can pass updated claims into updatedClaims to override the old payload.
+
+4. Extraction & Helper Utilities
 
 ```csharp
-var newTokens = _jwtService.RefreshToken(refreshToken);
-```
+// Get ClaimsPrincipal from an expired access token (lifetime check ignored)
+ClaimsPrincipal? principal = _jwtService.GetPrincipalFromExpiredToken(expiredAccessToken);
 
----
+// Extract User ID directly from a principal
+string? userId = _jwtService.GetUserIdFromPrincipal(principal);
+
+// Extract a specific claim value directly from a token string
+string? userEmail = _jwtService.GetClaimFromToken<string>(token, ClaimTypes.Email);
+
+// Decode raw token claims map
+Dictionary<string, object> claimsMap = _jwtService.DecodeToken(token);
+```
 
 ## 🚫 Revocation
 
 ```csharp
-_jwtService.RevokeToken(accessToken);
-_jwtService.RevokeRefreshToken(refreshToken);
-_jwtService.RevokeAllUserTokens(userId);
+// Revoke a specific access token JTI
+_jwtService.RevokeToken(accessToken, reason: "User logged out");
+
+// Revoke a refresh token
+_jwtService.RevokeRefreshToken(refreshToken, reason: "Security rotation");
+
+// Revoke all active sessions for a user (e.g., password reset)
+_jwtService.RevokeAllUserTokens(userId, reason: "Password changed");
 ```
 
----
+## 👤 Access Current User in Controllers
 
-## 👤 Access Current User
-
-Use claims via `HttpContext`:
+Use standard ASP.NET Core HttpContext claims:
 
 ```csharp
 var userId = HttpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+var userEmail = HttpContext.User.FindFirst(ClaimTypes.Email)?.Value;
 ```
-
----
 
 ## 🔐 Security Model
 
-JWT Middleware → cryptographic validation  
-JwtService → business security rules
+```text
+Client Request ──► JwtBearer Middleware ──► Cryptographic Validation
+                        │
+                        ▼
+                  JwtService ──► Business Security Rules (Blacklist / Replay / Revocation)
+```
 
-Do NOT duplicate validation logic.
+- JWT Middleware: Handles signature, expiration, issuer, and audience validation.
 
----
+- JwtService: Handles lifecycle state, blacklisting, replay protection, and key rotation management.
 
 ## 🔄 Background Cleanup
 
-Token cleanup runs automatically via `BackgroundService`:
+Automatic background cleanup runs hourly via BackgroundService:
 
-* Removes expired refresh tokens
-* Clears old revoked tokens
-* Cleans replay tracking
+- Purges expired and revoked refresh tokens.
 
----
+- Cleans old revoked JTIs older than 7 days.
+
+- Flushes expired JTI entries from the replay tracking cache.
 
 ## 📄 License
 
 MIT License - free for commercial and personal use.
-
----
 
 ## 👨‍💻 Author
 
